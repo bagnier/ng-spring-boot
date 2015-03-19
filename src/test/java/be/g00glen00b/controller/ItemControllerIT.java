@@ -4,7 +4,9 @@ import static com.jayway.restassured.RestAssured.*;
 import static org.hamcrest.Matchers.*;
 
 import org.apache.http.HttpStatus;
-import org.junit.*;
+import static org.junit.Assert.*;
+import org.junit.Before;
+import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.springframework.beans.factory.annotation.*;
 import org.springframework.boot.test.*;
@@ -48,6 +50,7 @@ public class ItemControllerIT {
   private int serverPort;
   private Item firstItem;
   private Item secondItem;
+  private String url;
   
   @Before
   public void setUp() {
@@ -55,51 +58,58 @@ public class ItemControllerIT {
     firstItem = repository.save(FIRST_ITEM);
     secondItem = repository.save(SECOND_ITEM);
     RestAssured.port = serverPort;
+    url = "http://localhost:" + port + "/items";
   }
 
   @Test
   public void getItemsShouldReturnBothItems() {
     when()
       .get(ITEMS_RESOURCE)
-    .then()
+    .then().log().all()
       .statusCode(HttpStatus.SC_OK)
-      .body(DESCRIPTION_FIELD, hasItems(FIRST_ITEM_DESCRIPTION, SECOND_ITEM_DESCRIPTION))
-      .body(CHECKED_FIELD, hasItems(true, false));
+      .body("_embedded.items.description", hasItems(FIRST_ITEM_DESCRIPTION, SECOND_ITEM_DESCRIPTION))
+      .body("_embedded.items.checked", hasItems(true, false))
+      .body("_embedded.items._links.self.href", 
+		hasItems(url + "/" + FIRST_ITEM.getId(), 
+			url + "/" + SECOND_ITEM.getId()))
+	.body("_links.self.templated", is(true))
+	.body("_links.self.href", is(url + "{?page,size,sort}"))
+	
+	.body("page.size", is(20)).body("page.totalElements", is(2))
+	.body("page.totalPages", is(1)).body("page.number", is(0));
   }
   
   @Test
-  public void addItemShouldReturnSavedItem() {
+  public void addItemShouldCreate() {
     given()
       .body(THIRD_ITEM)
       .contentType(ContentType.JSON)
     .when()
       .post(ITEMS_RESOURCE)
-    .then()
-      .statusCode(HttpStatus.SC_OK)
-      .body(DESCRIPTION_FIELD, is(THIRD_ITEM_DESCRIPTION))
-      .body(CHECKED_FIELD, is(false));
+    .then().log().all()
+      .statusCode(HttpStatus.SC_CREATED);
   }
   
   @Test
   public void addItemShouldReturnBadRequestWithoutBody() {
     when()
       .post(ITEMS_RESOURCE)
-    .then()
+    .then().log().all()
       .statusCode(HttpStatus.SC_BAD_REQUEST);
   }
   
   @Test
-  public void addItemShouldReturnNotSupportedMediaTypeIfNonJSON() {
+  public void addItemShouldReturnBadRequestIfNonJSON() {
     given()
       .body(THIRD_ITEM)
     .when()
       .post(ITEMS_RESOURCE)
-    .then()
-      .statusCode(HttpStatus.SC_UNSUPPORTED_MEDIA_TYPE);
+    .then().log().all()
+      .statusCode(HttpStatus.SC_BAD_REQUEST);
   }
   
   @Test
-  public void updateItemShouldReturnUpdatedItem() {
+  public void updateItemShouldReturnNoContent() {
     // Given an unchecked first item
     Item item = new ItemBuilder()
       .description(FIRST_ITEM_DESCRIPTION)
@@ -110,53 +120,53 @@ public class ItemControllerIT {
     .when()
       .put(ITEM_RESOURCE, firstItem.getId())
     .then()
-      .statusCode(HttpStatus.SC_OK)
-      .body(DESCRIPTION_FIELD, is(FIRST_ITEM_DESCRIPTION))
-      .body(CHECKED_FIELD, is(false));
+      .statusCode(HttpStatus.SC_NO_CONTENT);
   }
   
   @Test
   public void updateItemShouldReturnBadRequestWithoutBody() {
     when()
       .put(ITEM_RESOURCE, firstItem.getId())
-    .then()
+    .then().log().all()
       .statusCode(HttpStatus.SC_BAD_REQUEST);
   }
   
   @Test
-  public void updateItemShouldReturnNotSupportedMediaTypeIfNonJSON() {
+  public void updateItemShouldReturnBadRequestIfNonJSON() {
     given()
       .body(FIRST_ITEM)
     .when()
       .put(ITEM_RESOURCE, firstItem.getId())
-    .then()
-      .statusCode(HttpStatus.SC_UNSUPPORTED_MEDIA_TYPE);
+    .then().log().all()
+      .statusCode(HttpStatus.SC_BAD_REQUEST);
   }
   
   @Test
-  public void updateItemShouldBeBadRequestIfNonExistingID() {
+  public void updateAnyNonExistingItemShouldCreate() {
+    assertThat(THIRD_ITEM.getId(), is(nullValue()));
+      
     given()
-      .body(FIRST_ITEM)
+      .body(THIRD_ITEM)
       .contentType(ContentType.JSON)
     .when()
       .put(ITEM_RESOURCE, NON_EXISTING_ID)
-    .then()
-      .statusCode(HttpStatus.SC_BAD_REQUEST);
+    .then().log().all()
+      .statusCode(HttpStatus.SC_CREATED);
   }
   
   @Test
   public void deleteItemShouldReturnNoContent() {
     when()
       .delete(ITEM_RESOURCE, secondItem.getId())
-    .then()
+    .then().log().all()
       .statusCode(HttpStatus.SC_NO_CONTENT);
   }
   
   @Test
-  public void deleteItemShouldBeBadRequestIfNonExistingID() {
+  public void deleteItemShouldBeNotFoundIfNonExistingID() {
     when()
       .delete(ITEM_RESOURCE, NON_EXISTING_ID)
-    .then()
-      .statusCode(HttpStatus.SC_BAD_REQUEST);
+    .then().log().all()
+      .statusCode(HttpStatus.SC_NOT_FOUND);
   }
 }
